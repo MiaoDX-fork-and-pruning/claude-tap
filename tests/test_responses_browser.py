@@ -1553,6 +1553,39 @@ def test_viewer_renders_custom_tool_input_as_text(responses_page) -> None:
     assert '"input": "keep me as JSON"' in result["text"]
 
 
+def test_viewer_renders_namespace_members_and_extra_tool_fields(responses_page) -> None:
+    result = responses_page.evaluate(
+        """() => {
+          const host = document.createElement('div');
+          host.innerHTML = renderTools([
+            { type: 'custom', name: 'exec', description: 'Run code.', format: { type: 'grammar', syntax: 'lark', definition: 'start: SOURCE' } },
+            { type: 'function', name: 'wait', description: 'Wait.', strict: false, parameters: { type: 'object', properties: {} } },
+            {
+              type: 'namespace',
+              name: 'collaboration',
+              description: 'Sub-agent tools.',
+              tools: [{ type: 'function', name: 'spawn_agent', description: 'Spawn one.', parameters: { type: 'object', properties: { task: { type: 'string' } } } }]
+            },
+            { type: 'web_search', external_web_access: false }
+          ]);
+          const blocks = [...host.querySelectorAll(':scope > .tool-block')];
+          return {
+            names: blocks.map(b => b.querySelector('.tb-name').textContent),
+            nested: [...blocks[2].querySelectorAll(':scope .tool-block .tb-name')].map(n => n.textContent),
+            extras: blocks.map(b => [...b.querySelectorAll(':scope > .tool-block-body > .tb-extra')].map(e => e.textContent).join(''))
+          };
+        }"""
+    )
+
+    assert result["names"] == ["exec", "wait", "collaboration", "web_search"]
+    assert result["nested"] == ["spawn_agent"]
+    assert '"syntax": "lark"' in result["extras"][0]
+    # type and strict alone do not earn an extra block.
+    assert result["extras"][1] == ""
+    assert result["extras"][2] == ""
+    assert '"external_web_access": false' in result["extras"][3]
+
+
 def test_viewer_marks_codex_message_content_blocks(responses_page) -> None:
     responses_page.evaluate(
         """() => {
