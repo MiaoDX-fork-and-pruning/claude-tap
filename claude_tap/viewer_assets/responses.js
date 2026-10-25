@@ -132,6 +132,10 @@ function responseCallInput(item) {
   return input;
 }
 
+function responseCallToolUse(item) {
+  return { type: 'tool_use', id: item.call_id || item.id || '', name: responseCallToolName(item), input: responseCallInput(item) };
+}
+
 function isResponseToolResultItem(item) {
   if (!item || typeof item !== 'object' || typeof item.type !== 'string') return false;
   return item.type === 'tool_search_output' || item.type.endsWith('_call_output');
@@ -193,12 +197,7 @@ function responseInputItemToMessage(item, forBloat) {
     return {
       type: 'message',
       role: 'assistant',
-      content: [{
-        type: 'tool_use',
-        id: item.call_id || item.id || '',
-        name: responseCallToolName(item),
-        input: responseCallInput(item)
-      }]
+      content: [responseCallToolUse(item)]
     };
   }
   if (isResponseToolResultItem(item)) {
@@ -237,12 +236,7 @@ function webSocketOutputMessages(events) {
       messages.push({
         type: 'message',
         role: 'assistant',
-        content: [{
-          type: 'tool_use',
-          id: item.call_id || item.id || '',
-          name: responseCallToolName(item),
-          input: responseCallInput(item)
-        }]
+        content: [responseCallToolUse(item)]
       });
     } else if (item.type === 'message') {
       messages.push({
@@ -264,12 +258,7 @@ function responseBodyOutputMessages(output) {
       messages.push({
         type: 'message',
         role: 'assistant',
-        content: [{
-          type: 'tool_use',
-          id: item.call_id || item.id || '',
-          name: responseCallToolName(item),
-          input: responseCallInput(item)
-        }]
+        content: [responseCallToolUse(item)]
       });
       continue;
     }

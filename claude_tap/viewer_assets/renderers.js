@@ -604,7 +604,7 @@ function normalizeResponseOutput(output) {
         else content.push(c);
       }
     } else if (isResponseCallItem(item)) {
-      content.push({ type: 'tool_use', id: item.call_id || item.id || '', name: responseCallToolName(item), input: responseCallInput(item) });
+      content.push(responseCallToolUse(item));
     } else if (item.type === 'reasoning') {
       if (!item.summary) continue;
       const summaryText = Array.isArray(item.summary) ? item.summary.map(s => s?.text || '').join('\n') : (item.summary.text || JSON.stringify(item.summary));
