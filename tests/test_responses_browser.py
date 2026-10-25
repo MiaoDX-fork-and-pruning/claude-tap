@@ -1382,6 +1382,54 @@ def test_viewer_omits_empty_reasoning_blocks_for_zero_reasoning_tokens(responses
     assert "thinking" not in detail_text.lower()
 
 
+def test_viewer_shows_replayed_reasoning_items_as_thinking(responses_page) -> None:
+    result = responses_page.evaluate(
+        """() => {
+          const body = {
+            input: [
+              { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Read the app.' }] },
+              { type: 'reasoning', summary: [], content: [{ type: 'reasoning_text', text: 'Read src/App.tsx first.' }] },
+              { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Summarized plan.' }] },
+              { type: 'reasoning', summary: [], encrypted_content: 'opaque' },
+              { type: 'custom_tool_call', call_id: 'call_read', name: 'exec', input: 'cat src/App.tsx' }
+            ]
+          };
+          const messages = getMessages(body);
+          return {
+            roles: messages.map(message => message.role),
+            thinking: messages.flatMap(message => message.content)
+              .filter(block => block.type === 'thinking').map(block => block.thinking),
+            bloatItems: getMessages(body, { forBloat: true }).length
+          };
+        }"""
+    )
+
+    # The encrypted-only item has no readable text and stays out of the list.
+    assert result["roles"] == ["user", "assistant", "assistant", "assistant"]
+    assert result["thinking"] == ["Read src/App.tsx first.", "Summarized plan."]
+    assert result["bloatItems"] == 2
+
+
+def test_viewer_shows_response_reasoning_content_when_summary_is_empty(responses_page) -> None:
+    responses_page.evaluate(
+        """() => {
+          entries[0].response.body = {
+            output: [
+              { type: 'reasoning', summary: [], content: [{ type: 'reasoning_text', text: 'Check the data file next.' }] },
+              { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Visible answer' }] }
+            ],
+            usage: { input_tokens: 1, output_tokens: 1 }
+          };
+          renderDetail(entries[0]);
+        }"""
+    )
+
+    detail_text = responses_page.locator("#detail").inner_text()
+
+    assert "Check the data file next." in detail_text
+    assert "Visible answer" in detail_text
+
+
 def test_viewer_reconstructs_ws_output_from_output_item_done_when_completed_output_is_empty(
     responses_page,
 ) -> None:
@@ -1439,6 +1487,70 @@ def test_viewer_normalizes_generic_responses_tool_call_items(responses_page) -> 
     # bloat detector never sizes an encoded image as if it were result text.
     assert "input_image" in result["renderedMessages"]
     assert "screen.png" in result["renderedMessages"]
+
+
+def test_viewer_renders_text_part_tool_output_as_text(responses_page) -> None:
+    result = responses_page.evaluate(
+        """() => {
+          const body = {
+            input: [
+              { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Read the app.' }] },
+              { type: 'custom_tool_call', call_id: 'call_read', name: 'exec', input: 'cat -n src/App.tsx' },
+              {
+                type: 'custom_tool_call_output',
+                call_id: 'call_read',
+                output: [
+                  { type: 'input_text', text: 'Script completed\\nOutput:\\n' },
+                  { type: 'input_text', text: '     1\\tconst projects = [\\n     2\\t  {' }
+                ]
+              },
+              {
+                type: 'function_call_output',
+                call_id: 'call_mixed',
+                output: [{ type: 'input_text', text: 'caption' }, { type: 'input_image', image_url: 'https://example.test/a.png' }]
+              }
+            ]
+          };
+          const messages = getMessages(body);
+          const host = document.createElement('div');
+          host.innerHTML = renderMessages(messages);
+          return { text: host.innerText, results: messages.filter(m => m.role === 'tool').map(m => m.content[0].content) };
+        }"""
+    )
+
+    assert result["results"][0] == "Script completed\nOutput:\n     1\tconst projects = [\n     2\t  {"
+    assert "result (call_read)" in result["text"]
+    assert "\\n" not in result["text"]
+    # A list that is not all text keeps the structured rendering.
+    assert "input_image" in result["results"][1]
+
+
+def test_viewer_renders_custom_tool_input_as_text(responses_page) -> None:
+    result = responses_page.evaluate(
+        """() => {
+          const body = {
+            input: [
+              { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Read the app.' }] },
+              { type: 'custom_tool_call', call_id: 'call_exec', name: 'exec', input: 'const r = await tools.exec_command({cmd:"cat -n src/App.tsx"});\\ntext(r.output);' },
+              { type: 'function_call', call_id: 'call_fn', name: 'lookup', arguments: '{"input":"keep me as JSON"}' }
+            ]
+          };
+          const messages = getMessages(body);
+          const host = document.createElement('div');
+          host.innerHTML = renderMessages(messages);
+          const blocks = messages.flatMap(m => m.content).filter(b => b.type === 'tool_use');
+          return { text: host.innerText, inputs: blocks.map(b => b.input) };
+        }"""
+    )
+
+    assert 'const r = await tools.exec_command({cmd:"cat -n src/App.tsx"});\ntext(r.output);' in result["text"]
+    assert '"input": "const r' not in result["text"]
+    # The data shape other views read is unchanged.
+    assert result["inputs"][0] == {
+        "input": 'const r = await tools.exec_command({cmd:"cat -n src/App.tsx"});\ntext(r.output);'
+    }
+    # JSON function arguments keep the JSON view, including a key named `input`.
+    assert '"input": "keep me as JSON"' in result["text"]
 
 
 def test_viewer_marks_codex_message_content_blocks(responses_page) -> None:

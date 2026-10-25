@@ -606,8 +606,9 @@ function normalizeResponseOutput(output) {
     } else if (isResponseCallItem(item)) {
       content.push(responseCallToolUse(item));
     } else if (item.type === 'reasoning') {
-      if (!item.summary) continue;
-      const summaryText = Array.isArray(item.summary) ? item.summary.map(s => s?.text || '').join('\n') : (item.summary.text || JSON.stringify(item.summary));
+      const summaryText = item.summary && !Array.isArray(item.summary)
+        ? (item.summary.text || JSON.stringify(item.summary))
+        : reasoningItemText(item);
       if (summaryText.trim()) content.push({ type: 'thinking', thinking: summaryText });
     }
   }
@@ -1030,7 +1031,10 @@ function renderContent(content, role, options = {}) {
     }
     if (block.type === 'tool_use') {
       const label = block.id ? `${block.name || 'tool_use'} (${block.id})` : (block.name || 'tool_use');
-      return wrapContentBlock(`<span class="tool-use-label">${esc(label)}</span>${renderToolInput(block.input)}`, block, index, blocks.length, options);
+      const inputHtml = typeof block._freeformInput === 'string'
+        ? `<div class="pre-text">${esc(block._freeformInput)}</div>`
+        : renderToolInput(block.input);
+      return wrapContentBlock(`<span class="tool-use-label">${esc(label)}</span>${inputHtml}`, block, index, blocks.length, options);
     }
     if (block.type === 'tool_result') {
       const rc = block.content;
